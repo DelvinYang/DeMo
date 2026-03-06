@@ -1,0 +1,18 @@
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃      Validate metric      ┃       DataLoader 0        ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│          val_MR           │    0.4312500059604645     │
+│       val_b-minFDE6       │    3.3088622093200684     │
+│        val_minADE1        │     2.897670030593872     │
+│        val_minADE6        │    1.2864588499069214     │
+│        val_minFDE1        │     7.397350311279297     │
+│        val_minFDE6        │     2.66023588180542      │
+│        val_new_MR         │    0.43437498807907104    │
+│     val_new_b-minFDE6     │     3.427827835083008     │
+│      val_new_minADE1      │    2.8809008598327637     │
+│      val_new_minADE6      │    1.2596971988677979     │
+│      val_new_minFDE1      │     7.411436557769775     │
+│      val_new_minFDE6      │    2.7724573612213135     │
+└───────────────────────────┴───────────────────────────┘
+path = /res/shuqishen/demo/DeMo/outputs/
+change_av2_default_baseline_default/20260306-201529/checkpoints/last.ckpt

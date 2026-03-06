@@ -12,6 +12,7 @@ from src.metrics import MR, minADE, minFDE, brier_minFDE
 from src.utils.optim import WarmupCosLR
 from src.utils.LaplaceNLLLoss import LaplaceNLLLoss
 from .model_forecast import ModelForecast, StreamModelForecast
+from .model_forecast_snn_v1 import SNNModelForecastV1
 
 try:
     from src.utils.submission_av2 import SubmissionAv2
@@ -65,6 +66,7 @@ class Trainer(pl.LightningModule):
         model_dict = {
             'ModelForecast': ModelForecast,  # only 'DeMo'
             'StreamModelForecast': StreamModelForecast,  # integrate 'DeMo' with 'RealMotion'
+            'SNNModelForecastV1': SNNModelForecastV1,  # V1: spiking temporal encoder
         }
         assert model_type in model_dict
         return model_dict[model_type]

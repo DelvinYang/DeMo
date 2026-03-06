@@ -85,6 +85,29 @@ class ModelForecast(nn.Module):
 
         self.initialize_weights()
 
+    def _encode_actor_history(self, hist_feat, hist_feat_key_valid, B, N):
+        actor_feat = self.hist_embed_mlp(hist_feat[hist_feat_key_valid].contiguous())
+        residual = None
+        for blk_mamba in self.hist_embed_mamba:
+            actor_feat, residual = blk_mamba(actor_feat, residual)
+        fused_add_norm_fn = rms_norm_fn if isinstance(self.norm_f, RMSNorm) else layer_norm_fn
+        actor_feat = fused_add_norm_fn(
+            self.drop_path(actor_feat),
+            self.norm_f.weight,
+            self.norm_f.bias,
+            eps=self.norm_f.eps,
+            residual=residual,
+            prenorm=False,
+            residual_in_fp32=True
+        )
+
+        actor_feat = actor_feat[:, -1]
+        actor_feat_tmp = torch.zeros(
+            B * N, actor_feat.shape[-1], device=actor_feat.device
+        )
+        actor_feat_tmp[hist_feat_key_valid] = actor_feat
+        return actor_feat_tmp.view(B, N, actor_feat.shape[-1])
+
     def initialize_weights(self):
         nn.init.normal_(self.actor_type_embed, std=0.02)
         nn.init.normal_(self.lane_type_embed, std=0.02)
@@ -129,28 +152,7 @@ class ModelForecast(nn.Module):
         hist_feat = hist_feat.view(B * N, L, D)
         hist_feat_key_valid = hist_key_valid_mask.view(B * N)
 
-        # unidirectional mamba
-        actor_feat = self.hist_embed_mlp(hist_feat[hist_feat_key_valid].contiguous())
-        residual = None
-        for blk_mamba in self.hist_embed_mamba:
-            actor_feat, residual = blk_mamba(actor_feat, residual)
-        fused_add_norm_fn = rms_norm_fn if isinstance(self.norm_f, RMSNorm) else layer_norm_fn
-        actor_feat = fused_add_norm_fn(
-            self.drop_path(actor_feat),
-            self.norm_f.weight,
-            self.norm_f.bias,
-            eps=self.norm_f.eps,
-            residual=residual,
-            prenorm=False,
-            residual_in_fp32=True  
-        )
-
-        actor_feat = actor_feat[:, -1]
-        actor_feat_tmp = torch.zeros(
-            B * N, actor_feat.shape[-1], device=actor_feat.device
-        )
-        actor_feat_tmp[hist_feat_key_valid] = actor_feat
-        actor_feat = actor_feat_tmp.view(B, N, actor_feat.shape[-1])
+        actor_feat = self._encode_actor_history(hist_feat, hist_feat_key_valid, B, N)
 
         # map encoding
         lane_valid_mask = data["lane_valid_mask"]
