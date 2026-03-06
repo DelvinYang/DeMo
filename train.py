@@ -42,6 +42,10 @@ torch.set_float32_matmul_precision("high")
 def main(conf):
     pl.seed_everything(conf.seed, workers=True)
     output_dir = HydraConfig.get().runtime.output_dir
+    strategy = conf.strategy
+    model_type = conf.model.target.model.type
+    if model_type == "SNNModelForecastV3":
+        strategy = "ddp_find_unused_parameters_true"
 
     logger = TensorBoardLogger(save_dir=output_dir, name="logs")
 
@@ -66,7 +70,7 @@ def main(conf):
         max_epochs=conf.epochs,
         accelerator="gpu",
         devices=conf.gpus,
-        strategy="ddp_find_unused_parameters_false",
+        strategy=strategy,
         callbacks=callbacks,
         limit_train_batches=conf.limit_train_batches,
         limit_val_batches=conf.limit_val_batches,

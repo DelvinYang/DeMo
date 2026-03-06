@@ -23,6 +23,7 @@ output: change_${datamodule.name}_${datamodule.phase}_${model.name}_${model.phas
 # trainer
 num_workers: 4
 gpus: 4  # default to 4 GPUs for train/val
+strategy: ddp_find_unused_parameters_false
 sync_bn: true
 batch_size: 16
 epochs: 60

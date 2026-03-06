@@ -20,6 +20,9 @@ class SNNModelForecastV1(ModelForecast):
         **kwargs,
     ):
         super().__init__(embed_dim=embed_dim, use_temporal_mamba=False, **kwargs)
+        # V1 fully replaces the original temporal encoder path.
+        # Remove unused base projector to avoid DDP unused-parameter errors.
+        del self.hist_embed_mlp
 
         self.spike_temporal_encoder = SpikingTemporalEncoder(
             in_dim=4,
