@@ -97,6 +97,10 @@ def main(conf):
         mm = (elapsed % 3600) // 60
         ss = elapsed % 60
         print(f"Total training time: {hh:02d}:{mm:02d}:{ss:02d} ({train_seconds:.2f}s)")
+        if trainer.global_step > 0 and train_seconds > 0:
+            steps_per_sec = trainer.global_step / train_seconds
+            samples_per_sec = steps_per_sec * conf.batch_size * conf.gpus
+            print(f"Training throughput: {steps_per_sec:.2f} steps/s, {samples_per_sec:.2f} samples/s")
     trainer.validate(model, datamodule.val_dataloader())
 
 

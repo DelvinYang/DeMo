@@ -8,6 +8,12 @@
 - 模型输入输出与当前 DeMo **完全一致**
 - SNN 相关实现统一基于 **spikingjelly**
 
+当前策略补充（性能与速度优先）：
+
+- full-SNN（V2/V3 全替换）不再作为默认主线
+- 默认主线改为 `SNNModelForecastFast`（SNN temporal encoder + ANN scene/decoder）
+- 优先保证掉点可控与训练吞吐，再做更激进的 SNN 替换
+
 ---
 
 ## 0. 硬性要求：使用 spikingjelly

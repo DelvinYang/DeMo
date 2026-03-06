@@ -17,6 +17,10 @@ class SNNModelForecastV1(ModelForecast):
         spike_tau=2.0,
         spike_v_threshold=1.0,
         spike_detach_reset=True,
+        spike_backend="torch",
+        hist_downsample=1,
+        spike_steps=None,
+        spike_pooling="last",
         **kwargs,
     ):
         super().__init__(embed_dim=embed_dim, use_temporal_mamba=False, **kwargs)
@@ -33,6 +37,10 @@ class SNNModelForecastV1(ModelForecast):
             tau=spike_tau,
             v_threshold=spike_v_threshold,
             detach_reset=spike_detach_reset,
+            backend=spike_backend,
+            hist_downsample=hist_downsample,
+            spike_steps=spike_steps,
+            pooling=spike_pooling,
         )
         self.actor_out_norm = nn.LayerNorm(embed_dim)
 
