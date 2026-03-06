@@ -24,11 +24,15 @@ class TemporalConvSNNEncoder(nn.Module):
         spike_detach_reset=True,
         spike_backend="torch",
         collect_aux_losses=True,
+        recent_frames=4,
+        recent_residual_weight=0.2,
     ):
         super().__init__()
         self.compressed_steps = int(compressed_steps)
         self.collect_aux_losses = bool(collect_aux_losses)
         self.spike_backend = self._resolve_backend(spike_backend)
+        self.recent_frames = max(1, int(recent_frames))
+        self.recent_residual_weight = float(recent_residual_weight)
         self.latest_aux_losses = {
             "spike_sparsity_loss": None,
             "membrane_stability_loss": None,
@@ -41,6 +45,11 @@ class TemporalConvSNNEncoder(nn.Module):
             nn.GELU(),
         )
         self.temporal_norm = nn.LayerNorm(embed_dim)
+        self.recent_proj = nn.Sequential(
+            nn.Linear(in_dim, embed_dim),
+            nn.GELU(),
+            nn.Linear(embed_dim, embed_dim),
+        )
 
         self.spike_layers = nn.ModuleList(
             [
@@ -146,5 +155,9 @@ class TemporalConvSNNEncoder(nn.Module):
             last_idx = valid_lengths - 1
             batch_idx = torch.arange(x.size(0), device=x.device)
             actor_feat = x[batch_idx, last_idx]
+
+        recent = hist_feat[:, -self.recent_frames :, :]
+        recent_feat = self.recent_proj(recent).mean(dim=1)
+        actor_feat = actor_feat + self.recent_residual_weight * recent_feat.to(actor_feat.dtype)
 
         return actor_feat, spike_rate

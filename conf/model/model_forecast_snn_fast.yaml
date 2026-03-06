@@ -11,23 +11,31 @@ target:
     mlp_ratio: 4.0
     qkv_bias: False
     drop_path: 0.2
-    max_lane_tokens: 16
+    max_lane_tokens: 24
     active_agents: 16
-    lane_tokens: 16
+    lane_tokens: 24
     graph_depth: 2
-    compressed_steps: 8
+    hybrid_scene_depth: 1
+    hybrid_num_heads: 4
+    hybrid_mlp_ratio: 2.0
+    compressed_steps: 10
     spike_depth: 2
     spike_tau: 2.5
     spike_v_threshold: 0.9
     spike_detach_reset: True
+    recent_frames: 6
+    recent_residual_weight: 0.35
+    lane_near_ego: 12
+    lane_near_goal: 8
+    lane_diverse: 4
     spike_backend: auto  # auto | torch | cupy | triton
   pretrained_weights: ${pretrained_weights}
   lr: ${lr}
   weight_decay: ${weight_decay}
   epochs: ${epochs}
   warmup_epochs: ${warmup_epochs}
-  spike_reg_weight: 0.0002
-  mem_reg_weight: 0.0002
+  spike_reg_weight: 0.00005
+  mem_reg_weight: 0.0001
   use_torch_compile: false
   compile_mode: max-autotune
   use_fused_adamw: true
