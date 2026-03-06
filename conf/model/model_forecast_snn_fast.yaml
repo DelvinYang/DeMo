@@ -28,6 +28,7 @@ target:
   warmup_epochs: ${warmup_epochs}
   spike_reg_weight: 0.0002
   mem_reg_weight: 0.0002
-  use_torch_compile: true
+  use_torch_compile: false
   compile_mode: max-autotune
   use_fused_adamw: true
+  force_torch_compile_with_snn: false

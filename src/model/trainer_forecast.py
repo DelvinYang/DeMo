@@ -36,6 +36,7 @@ class Trainer(pl.LightningModule):
         use_torch_compile: bool = False,
         compile_mode: str = "max-autotune",
         use_fused_adamw: bool = False,
+        force_torch_compile_with_snn: bool = False,
     ) -> None:
         super(Trainer, self).__init__()
         self.warmup_epochs = warmup_epochs
@@ -47,6 +48,7 @@ class Trainer(pl.LightningModule):
         self.use_torch_compile = bool(use_torch_compile)
         self.compile_mode = compile_mode
         self.use_fused_adamw = bool(use_fused_adamw)
+        self.force_torch_compile_with_snn = bool(force_torch_compile_with_snn)
         self._is_compiled = False
         self.save_hyperparameters()
         self.submission_handler = None
@@ -78,6 +80,17 @@ class Trainer(pl.LightningModule):
         if stage not in (None, "fit"):
             return
         if not self.use_torch_compile or self._is_compiled:
+            return
+        has_snn = any(
+            m.__class__.__module__.startswith("spikingjelly")
+            for m in self.net.modules()
+        )
+        if has_snn and not self.force_torch_compile_with_snn:
+            if getattr(self, "global_rank", 0) == 0:
+                print(
+                    "Skip torch.compile: detected spikingjelly modules; "
+                    "Dynamo is unstable on this path."
+                )
             return
         if not hasattr(torch, "compile"):
             warnings.warn("torch.compile is unavailable in this torch version. Skip compile.")
