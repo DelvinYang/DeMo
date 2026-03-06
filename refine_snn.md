@@ -1,3 +1,32 @@
+## 实现状态（2026-03-06）
+
+已按本文件建议落地的关键修改点：
+
+- [x] `SNNModelForecastFast` 主链路改为  
+  `TemporalConvSNNEncoder -> EventSceneGraph -> FastDecoder`  
+  文件：`src/model/model_forecast_snn_fast.py`
+- [x] Scene 交互从全量 Transformer 改为稀疏事件图  
+  文件：`src/model/layers/event_scene_graph.py`
+- [x] Lane token 压缩默认值改为 `16`  
+  配置：`conf/model/model_forecast_snn_fast.yaml`
+- [x] Temporal 先卷积压缩再 SNN，多步处理默认 `compressed_steps=8`  
+  文件：`src/model/layers/temporal_conv_snn.py`
+- [x] 轻量解码器替换重型 time decoder  
+  文件：`src/model/layers/fast_decoder.py`
+- [x] 保持 DeMo 训练/评估 I/O 兼容（`y_hat/pi/scal/new_y_hat/new_pi/...`）
+- [x] 接入 `spike_sparsity_loss`、`membrane_stability_loss` 到训练总损失  
+  文件：`src/model/trainer_forecast.py` + `src/model/model_forecast_snn_fast.py`
+- [x] `spike_backend` 支持 `auto`，自动探测 `triton/cupy/torch` 并回退  
+  文件：`src/model/layers/temporal_conv_snn.py`
+- [x] 提供后端基准脚本（可做可用性与速度实测）  
+  文件：`scripts/benchmark_spike_backend.py`
+- [x] 训练加速项落地：`torch.compile`（可配置）+ `fused AdamW`（可回退）  
+  文件：`src/model/trainer_forecast.py`
+- [x] SNN Fast 默认日志步长上调（减小 Lightning logging 开销）  
+  文件：`train.py`
+
+---
+
 很好，你这份 **as-implemented pipeline** 写得非常清楚，这让我可以直接判断问题在哪。
 结论先说：
 

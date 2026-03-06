@@ -49,6 +49,7 @@ def main(conf):
     strategy = conf.strategy
     precision = conf.precision
     model_type = conf.model.target.model.type
+    log_every_n_steps = conf.log_every_n_steps
     if model_type == "SNNModelForecastV3":
         strategy = "ddp_find_unused_parameters_true"
     if model_type in {
@@ -58,6 +59,8 @@ def main(conf):
         "SNNModelForecastV3",
     } and precision == "32-true":
         precision = "bf16-mixed"
+    if model_type == "SNNModelForecastFast":
+        log_every_n_steps = max(int(log_every_n_steps), 200)
 
     logger = TensorBoardLogger(save_dir=output_dir, name="logs")
 
@@ -88,7 +91,7 @@ def main(conf):
         limit_train_batches=conf.limit_train_batches,
         limit_val_batches=conf.limit_val_batches,
         sync_batchnorm=conf.sync_bn,
-        log_every_n_steps=conf.log_every_n_steps,
+        log_every_n_steps=log_every_n_steps,
         enable_model_summary=False,
     )
 

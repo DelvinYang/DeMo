@@ -11,26 +11,23 @@ target:
     mlp_ratio: 4.0
     qkv_bias: False
     drop_path: 0.2
-    scene_depth: 5
-    max_lane_tokens:
-
-    # SNN temporal encoder
-    spike_depth: 4
-    spike_mlp_ratio: 2.0
-    spike_dropout: 0.05
+    max_lane_tokens: 16
+    active_agents: 16
+    lane_tokens: 16
+    graph_depth: 2
+    compressed_steps: 8
+    spike_depth: 2
     spike_tau: 2.5
     spike_v_threshold: 0.9
     spike_detach_reset: True
-    spike_backend: torch  # torch | cupy | triton (if available)
-    hist_downsample: 3
-    spike_steps: 10
-    spike_pooling: last
-    ann_bypass_ratio: 0.15
-    collect_aux_losses: False
+    spike_backend: auto  # auto | torch | cupy | triton
   pretrained_weights: ${pretrained_weights}
   lr: ${lr}
   weight_decay: ${weight_decay}
   epochs: ${epochs}
   warmup_epochs: ${warmup_epochs}
-  spike_reg_weight: 0.0
-  mem_reg_weight: 0.0
+  spike_reg_weight: 0.0002
+  mem_reg_weight: 0.0002
+  use_torch_compile: true
+  compile_mode: max-autotune
+  use_fused_adamw: true

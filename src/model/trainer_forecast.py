@@ -2,6 +2,7 @@ import datetime
 from pathlib import Path
 import time
 import pickle
+import warnings
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
@@ -32,6 +33,9 @@ class Trainer(pl.LightningModule):
         weight_decay: float = 1e-4,
         spike_reg_weight: float = 0.0,
         mem_reg_weight: float = 0.0,
+        use_torch_compile: bool = False,
+        compile_mode: str = "max-autotune",
+        use_fused_adamw: bool = False,
     ) -> None:
         super(Trainer, self).__init__()
         self.warmup_epochs = warmup_epochs
@@ -40,6 +44,10 @@ class Trainer(pl.LightningModule):
         self.weight_decay = weight_decay
         self.spike_reg_weight = spike_reg_weight
         self.mem_reg_weight = mem_reg_weight
+        self.use_torch_compile = bool(use_torch_compile)
+        self.compile_mode = compile_mode
+        self.use_fused_adamw = bool(use_fused_adamw)
+        self._is_compiled = False
         self.save_hyperparameters()
         self.submission_handler = None
 
@@ -64,6 +72,23 @@ class Trainer(pl.LightningModule):
         self.laplace_loss = LaplaceNLLLoss()
         self.val_metrics = metrics.clone(prefix="val_")
         self.val_metrics_new = metrics.clone(prefix="val_new_")
+
+    def setup(self, stage=None):
+        super().setup(stage)
+        if stage not in (None, "fit"):
+            return
+        if not self.use_torch_compile or self._is_compiled:
+            return
+        if not hasattr(torch, "compile"):
+            warnings.warn("torch.compile is unavailable in this torch version. Skip compile.")
+            return
+        try:
+            self.net = torch.compile(self.net, mode=self.compile_mode)
+            self._is_compiled = True
+            if getattr(self, "global_rank", 0) == 0:
+                print(f"Enabled torch.compile for model with mode='{self.compile_mode}'.")
+        except Exception as exc:
+            warnings.warn(f"torch.compile failed ({exc}). Continue without compile.")
     
     def get_model(self, model_type):
         model_dict = {
@@ -358,9 +383,21 @@ class Trainer(pl.LightningModule):
             },
         ]
 
-        optimizer = torch.optim.AdamW(
-            optim_groups, lr=self.lr, weight_decay=self.weight_decay
-        )
+        adamw_kwargs = {
+            "lr": self.lr,
+            "weight_decay": self.weight_decay,
+        }
+        if self.use_fused_adamw and torch.cuda.is_available():
+            adamw_kwargs["fused"] = True
+        try:
+            optimizer = torch.optim.AdamW(optim_groups, **adamw_kwargs)
+        except TypeError:
+            if "fused" in adamw_kwargs:
+                adamw_kwargs.pop("fused")
+                warnings.warn(
+                    "Current torch build does not support fused AdamW; fallback to standard AdamW."
+                )
+            optimizer = torch.optim.AdamW(optim_groups, **adamw_kwargs)
         scheduler = WarmupCosLR(
             optimizer=optimizer,
             lr=self.lr,
