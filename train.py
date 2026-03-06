@@ -1,6 +1,8 @@
 import os
 import sys
+import warnings
 import hydra
+import torch
 import pytorch_lightning as pl
 from hydra.core.hydra_config import HydraConfig
 from hydra.utils import instantiate
@@ -11,6 +13,16 @@ from pytorch_lightning.callbacks import (
     RichProgressBar,
 )
 from pytorch_lightning.loggers import TensorBoardLogger
+
+# Performance hint for Tensor Core GPUs (e.g., A100): use TF32 matmul kernels.
+torch.set_float32_matmul_precision("high")
+
+# mamba_ssm uses deprecated AMP decorators internally; keep logs clean.
+warnings.filterwarnings(
+    "ignore",
+    message=r"`torch\.cuda\.amp\.custom_(fwd|bwd)\(args\.\.\.\)` is deprecated\..*",
+    category=FutureWarning,
+)
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")

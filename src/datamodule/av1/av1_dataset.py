@@ -7,6 +7,14 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
 
 
+def _safe_torch_load(path):
+    try:
+        return torch.load(path, weights_only=True)
+    except TypeError:
+        # For older PyTorch versions without `weights_only`.
+        return torch.load(path)
+
+
 class Av1Dataset(Dataset):
     def __init__(
         self,
@@ -35,7 +43,7 @@ class Av1Dataset(Dataset):
         return len(self.file_list)
 
     def __getitem__(self, index: int):
-        data = torch.load(self.file_list[index])
+        data = _safe_torch_load(self.file_list[index])
         scenario_id = os.path.splitext(os.path.basename(self.file_list[index]))[0]
         data = self.process(data, scenario_id)
         return data

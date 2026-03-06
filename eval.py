@@ -1,10 +1,22 @@
 import os
 import sys
+import warnings
 import hydra
 from hydra.core.hydra_config import HydraConfig
 import pytorch_lightning as pl
+import torch
 from hydra.utils import instantiate, to_absolute_path
 from importlib import import_module
+
+# Match train-time matmul behavior and improve Tensor Core utilization.
+torch.set_float32_matmul_precision("high")
+
+# mamba_ssm emits AMP deprecation warnings during import.
+warnings.filterwarnings(
+    "ignore",
+    message=r"`torch\.cuda\.amp\.custom_(fwd|bwd)\(args\.\.\.\)` is deprecated\..*",
+    category=FutureWarning,
+)
 
 
 @hydra.main(version_base=None, config_path="./conf/", config_name="config")
