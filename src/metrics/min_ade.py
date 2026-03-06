@@ -21,12 +21,7 @@ class minADE(Metric):
         process_group: Optional[Any] = None,
         dist_sync_fn: Callable = None,
     ) -> None:
-        super(minADE, self).__init__(
-            compute_on_step=compute_on_step,
-            dist_sync_on_step=dist_sync_on_step,
-            process_group=process_group,
-            dist_sync_fn=dist_sync_fn,
-        )
+        super(minADE, self).__init__()
         self.k = k
         self.add_state("sum", default=torch.tensor(0.0), dist_reduce_fx="sum")
         self.add_state("count", default=torch.tensor(0), dist_reduce_fx="sum")
