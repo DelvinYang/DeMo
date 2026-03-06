@@ -3,17 +3,67 @@ import torch.nn as nn
 from functools import partial
 from torch import Tensor
 from typing import Optional
+from collections import namedtuple
+import math
+import random
+
+
+def _patch_transformers_generation_outputs() -> None:
+    """Backfill output classes expected by older mamba_ssm versions.
+
+    Some mamba_ssm releases import decoder output dataclasses from
+    `transformers.generation`, but newer transformers versions expose them in
+    different places. We patch attributes before importing mamba_ssm.
+    """
+    try:
+        import transformers.generation as generation_mod
+    except Exception:
+        return
+
+    if hasattr(generation_mod, "GreedySearchDecoderOnlyOutput") and hasattr(
+        generation_mod, "SampleDecoderOnlyOutput"
+    ):
+        return
+
+    greedy_cls = None
+    sample_cls = None
+    try:
+        from transformers.generation.utils import (
+            GreedySearchDecoderOnlyOutput as _GreedySearchDecoderOnlyOutput,
+        )
+        greedy_cls = _GreedySearchDecoderOnlyOutput
+    except Exception:
+        pass
+
+    try:
+        from transformers.generation.utils import (
+            SampleDecoderOnlyOutput as _SampleDecoderOnlyOutput,
+        )
+        sample_cls = _SampleDecoderOnlyOutput
+    except Exception:
+        pass
+
+    # Final fallback for very new/old transformers variants where these classes
+    # are not importable under known paths. mamba_ssm only needs symbols to exist.
+    if greedy_cls is None:
+        greedy_cls = namedtuple("GreedySearchDecoderOnlyOutput", ["sequences"])
+    if sample_cls is None:
+        sample_cls = namedtuple("SampleDecoderOnlyOutput", ["sequences"])
+
+    generation_mod.GreedySearchDecoderOnlyOutput = greedy_cls
+    generation_mod.SampleDecoderOnlyOutput = sample_cls
+
+
+_patch_transformers_generation_outputs()
+
 from timm.models.vision_transformer import VisionTransformer, _cfg
 from timm.models.registry import register_model
 from timm.models.layers import trunc_normal_, lecun_normal_
 from timm.models.layers import DropPath, to_2tuple
 from timm.models.vision_transformer import _load_weights
-import math
-from collections import namedtuple
 from mamba_ssm.modules.mamba_simple import Mamba
 from mamba_ssm.utils.generation import GenerationMixin
 from mamba_ssm.utils.hf import load_config_hf, load_state_dict_hf
-import random
 try:
     from mamba_ssm.ops.triton.layernorm import RMSNorm, layer_norm_fn, rms_norm_fn
 except ImportError:
