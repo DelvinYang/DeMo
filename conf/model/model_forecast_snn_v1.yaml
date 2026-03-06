@@ -22,3 +22,5 @@ target:
   weight_decay: ${weight_decay}
   epochs: ${epochs}
   warmup_epochs: ${warmup_epochs}
+  spike_reg_weight: 0.001
+  mem_reg_weight: 0.001

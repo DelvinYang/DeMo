@@ -43,11 +43,16 @@ class SNNModelForecastV1(ModelForecast):
             pooling=spike_pooling,
         )
         self.actor_out_norm = nn.LayerNorm(embed_dim)
+        self._latest_snn_aux_losses = {
+            "spike_sparsity_loss": None,
+            "membrane_stability_loss": None,
+        }
 
     def _encode_actor_history(self, hist_feat, hist_feat_key_valid, B, N):
         valid_hist_feat = hist_feat[hist_feat_key_valid].contiguous()
         valid_hist_mask = valid_hist_feat[..., -1] > 0.5
         actor_feat = self.spike_temporal_encoder(valid_hist_feat, valid_hist_mask)
+        self._latest_snn_aux_losses = self.spike_temporal_encoder.latest_aux_losses
         actor_feat = self.actor_out_norm(actor_feat)
 
         actor_feat_tmp = torch.zeros(
@@ -58,3 +63,9 @@ class SNNModelForecastV1(ModelForecast):
         )
         actor_feat_tmp[hist_feat_key_valid] = actor_feat
         return actor_feat_tmp.view(B, N, actor_feat.shape[-1])
+
+    def forward(self, data):
+        out = super().forward(data)
+        if self._latest_snn_aux_losses is not None:
+            out.update(self._latest_snn_aux_losses)
+        return out

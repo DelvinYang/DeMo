@@ -30,12 +30,16 @@ class Trainer(pl.LightningModule):
         warmup_epochs: int = 10,
         epochs: int = 60,
         weight_decay: float = 1e-4,
+        spike_reg_weight: float = 0.0,
+        mem_reg_weight: float = 0.0,
     ) -> None:
         super(Trainer, self).__init__()
         self.warmup_epochs = warmup_epochs
         self.epochs = epochs
         self.lr = lr
         self.weight_decay = weight_decay
+        self.spike_reg_weight = spike_reg_weight
+        self.mem_reg_weight = mem_reg_weight
         self.save_hyperparameters()
         self.submission_handler = None
 
@@ -139,6 +143,8 @@ class Trainer(pl.LightningModule):
         new_y_hat = out.get("new_y_hat", None)
         new_pi = out.get("new_pi", None)
         dense_predict = out.get("dense_predict", None)
+        spike_sparsity_loss = out.get("spike_sparsity_loss", None)
+        membrane_stability_loss = out.get("membrane_stability_loss", None)
 
         # gt
         y, y_others = data["target"][:, 0], data["target"][:, 1:]
@@ -191,6 +197,10 @@ class Trainer(pl.LightningModule):
         loss = agent_reg_loss + agent_cls_loss + others_reg_loss + \
                 new_agent_reg_loss + dense_reg_loss + new_pi_reg_loss
         loss = loss + laplace_loss + laplace_loss_new
+        if spike_sparsity_loss is not None:
+            loss = loss + self.spike_reg_weight * spike_sparsity_loss
+        if membrane_stability_loss is not None:
+            loss = loss + self.mem_reg_weight * membrane_stability_loss
 
         disp_dict = {
             f"{tag}loss": loss.item(),
@@ -200,6 +210,12 @@ class Trainer(pl.LightningModule):
             f"{tag}laplace_loss": laplace_loss.item(),
             f"{tag}laplace_loss_new": laplace_loss_new.item(),
         }
+        if spike_sparsity_loss is not None:
+            disp_dict[f"{tag}spike_sparsity_loss"] = float(spike_sparsity_loss.detach().item())
+        if membrane_stability_loss is not None:
+            disp_dict[f"{tag}membrane_stability_loss"] = float(
+                membrane_stability_loss.detach().item()
+            )
         if new_y_hat is not None:
             disp_dict[f"{tag}reg_loss_refine"] = new_agent_reg_loss.item()
         if new_pi is not None:

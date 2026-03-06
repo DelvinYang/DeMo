@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import warnings
 
 try:
     from spikingjelly.activation_based import functional, neuron, surrogate
@@ -46,6 +47,7 @@ class SpikingResidualTemporalBlock(nn.Module):
             detach_reset=detach_reset,
             step_mode="m",
             backend=backend,
+            store_v_seq=True,
         )
         self.fc2 = nn.Linear(hidden_dim, embed_dim)
         self.norm2 = nn.LayerNorm(embed_dim)
@@ -56,16 +58,31 @@ class SpikingResidualTemporalBlock(nn.Module):
             detach_reset=detach_reset,
             step_mode="m",
             backend=backend,
+            store_v_seq=True,
         )
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x):
+    @staticmethod
+    def _membrane_stability(v_seq):
+        if v_seq is None:
+            return None
+        if v_seq.dim() < 2 or v_seq.size(0) < 2:
+            return v_seq.new_zeros(())
+        return (v_seq[1:] - v_seq[:-1]).abs().mean()
+
+    def forward(self, x, return_aux=False):
         residual = x
+        aux = {}
         x = self.fc1(x)
         x = self.norm1(x)
         x = x.transpose(0, 1).contiguous()  # [T, B, C]
         functional.reset_net(self.lif1)
         x = self.lif1(x)
+        if return_aux:
+            aux["spike_sparsity_loss"] = x.abs().mean()
+            aux["membrane_stability_loss"] = self._membrane_stability(
+                getattr(self.lif1, "v_seq", None)
+            )
         x = x.transpose(0, 1).contiguous()
         x = self.dropout(x)
 
@@ -74,9 +91,20 @@ class SpikingResidualTemporalBlock(nn.Module):
         x = x.transpose(0, 1).contiguous()  # [T, B, C]
         functional.reset_net(self.lif2)
         x = self.lif2(x)
+        if return_aux:
+            cur_sparsity = x.abs().mean()
+            cur_stability = self._membrane_stability(getattr(self.lif2, "v_seq", None))
+            aux["spike_sparsity_loss"] = aux["spike_sparsity_loss"] + cur_sparsity
+            if aux["membrane_stability_loss"] is None:
+                aux["membrane_stability_loss"] = cur_stability
+            elif cur_stability is not None:
+                aux["membrane_stability_loss"] = aux["membrane_stability_loss"] + cur_stability
         x = x.transpose(0, 1).contiguous()
         x = self.dropout(x)
-        return residual + x
+        out = residual + x
+        if return_aux:
+            return out, aux
+        return out
 
 
 class SpikingTemporalEncoder(nn.Module):
@@ -99,6 +127,8 @@ class SpikingTemporalEncoder(nn.Module):
         self.hist_downsample = max(1, int(hist_downsample))
         self.spike_steps = spike_steps
         self.pooling = pooling
+        self.backend = self._resolve_backend(backend)
+        self.latest_aux_losses = None
         self.projector = SpikeInputProjector(
             in_dim=in_dim,
             hidden_dim=64,
@@ -113,11 +143,35 @@ class SpikingTemporalEncoder(nn.Module):
                     tau=tau,
                     v_threshold=v_threshold,
                     detach_reset=detach_reset,
-                    backend=backend,
+                    backend=self.backend,
                 )
                 for _ in range(depth)
             ]
         )
+
+    @staticmethod
+    def _resolve_backend(backend):
+        backend = str(backend).lower()
+        if backend == "torch":
+            return backend
+        if not torch.cuda.is_available():
+            warnings.warn(
+                f"Requested spike backend '{backend}' but CUDA is unavailable. Falling back to 'torch'."
+            )
+            return "torch"
+        try:
+            test_node = neuron.LIFNode(step_mode="m", backend=backend)
+            test_x = torch.randn(4, 2, 8, device="cuda")
+            functional.reset_net(test_node)
+            _ = test_node(test_x)
+            torch.cuda.synchronize()
+            return backend
+        except Exception as exc:
+            warnings.warn(
+                f"Requested spike backend '{backend}' is not available ({exc}). "
+                "Falling back to 'torch'."
+            )
+            return "torch"
 
     @staticmethod
     def _masked_mean(x, mask):
@@ -148,8 +202,27 @@ class SpikingTemporalEncoder(nn.Module):
     def forward(self, hist_feat, hist_valid_mask=None):
         x, hist_valid_mask = self._compress_time(hist_feat, hist_valid_mask)
         x = self.projector(x)
+        spike_sparsity_terms = []
+        membrane_stability_terms = []
         for blk in self.blocks:
-            x = blk(x)
+            x, aux = blk(x, return_aux=True)
+            if aux.get("spike_sparsity_loss") is not None:
+                spike_sparsity_terms.append(aux["spike_sparsity_loss"])
+            if aux.get("membrane_stability_loss") is not None:
+                membrane_stability_terms.append(aux["membrane_stability_loss"])
+
+        # Keep losses as tensors on the right device for trainer aggregation.
+        zero = x.new_zeros(())
+        self.latest_aux_losses = {
+            "spike_sparsity_loss": (
+                torch.stack(spike_sparsity_terms).mean() if spike_sparsity_terms else zero
+            ),
+            "membrane_stability_loss": (
+                torch.stack(membrane_stability_terms).mean()
+                if membrane_stability_terms
+                else zero
+            ),
+        }
 
         if hist_valid_mask is None:
             return x[:, -1]
