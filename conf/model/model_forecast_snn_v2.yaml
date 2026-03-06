@@ -1,0 +1,33 @@
+name: snn_v2
+phase: default
+
+target:
+  _target_: src.model.trainer_forecast.Trainer
+  model:
+    type: 'SNNModelForecastV2'
+    embed_dim: 128
+    future_steps: 60
+    num_heads: 8
+    mlp_ratio: 4.0
+    qkv_bias: False
+    drop_path: 0.2
+
+    # V1 params
+    spike_depth: 4
+    spike_mlp_ratio: 2.0
+    spike_dropout: 0.1
+    spike_tau: 2.0
+    spike_v_threshold: 1.0
+    spike_detach_reset: True
+
+    # V2 params
+    interaction_type: spiking  # spiking | hybrid | transformer
+    interaction_depth: 5
+    interaction_tau: 2.0
+    interaction_v_threshold: 1.0
+    interaction_detach_reset: True
+  pretrained_weights: ${pretrained_weights}
+  lr: ${lr}
+  weight_decay: ${weight_decay}
+  epochs: ${epochs}
+  warmup_epochs: ${warmup_epochs}

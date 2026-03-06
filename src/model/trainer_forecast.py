@@ -75,6 +75,15 @@ class Trainer(pl.LightningModule):
                     "Please install spikingjelly in the active environment."
                 ) from exc
             model_dict['SNNModelForecastV1'] = SNNModelForecastV1
+        if model_type == 'SNNModelForecastV2':
+            try:
+                from .model_forecast_snn_v2 import SNNModelForecastV2
+            except ImportError as exc:
+                raise ImportError(
+                    "Failed to import SNNModelForecastV2. "
+                    "Please install spikingjelly in the active environment."
+                ) from exc
+            model_dict['SNNModelForecastV2'] = SNNModelForecastV2
         assert model_type in model_dict
         return model_dict[model_type]
 

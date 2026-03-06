@@ -1,6 +1,7 @@
 import os
 import sys
 import warnings
+import time
 import numpy as np
 
 # Compatibility shim for old packages (e.g. older wandb) under NumPy>=2.0.
@@ -83,7 +84,15 @@ def main(conf):
         print(model)  
         sys.stdout = original_stdout  
     datamodule = instantiate(conf.datamodule.target)
+    train_start = time.perf_counter()
     trainer.fit(model, datamodule, ckpt_path=conf.checkpoint)
+    train_seconds = time.perf_counter() - train_start
+    if trainer.is_global_zero:
+        elapsed = int(train_seconds)
+        hh = elapsed // 3600
+        mm = (elapsed % 3600) // 60
+        ss = elapsed % 60
+        print(f"Total training time: {hh:02d}:{mm:02d}:{ss:02d} ({train_seconds:.2f}s)")
     trainer.validate(model, datamodule.val_dataloader())
 
 
