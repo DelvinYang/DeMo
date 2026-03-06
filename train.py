@@ -23,6 +23,12 @@ warnings.filterwarnings(
     message=r"`torch\.cuda\.amp\.custom_(fwd|bwd)\(args\.\.\.\)` is deprecated\..*",
     category=FutureWarning,
 )
+warnings.filterwarnings(
+    "ignore",
+    message=r"pkg_resources is deprecated as an API\..*",
+    category=UserWarning,
+    module=r"torchmetrics\.utilities\.imports",
+)
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
@@ -58,6 +64,8 @@ def main(conf):
         limit_train_batches=conf.limit_train_batches,
         limit_val_batches=conf.limit_val_batches,
         sync_batchnorm=conf.sync_bn,
+        log_every_n_steps=conf.log_every_n_steps,
+        enable_model_summary=False,
     )
 
     model = instantiate(conf.model.target)

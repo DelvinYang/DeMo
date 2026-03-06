@@ -4,7 +4,7 @@ from .transformer_blocks import Cross_Block, Block
 import torch.nn.functional as F
 from .mamba.vim_mamba import init_weights, create_block
 from functools import partial
-from timm.models.layers import DropPath, to_2tuple
+from timm.layers import DropPath, to_2tuple
 try:
     from mamba_ssm.ops.triton.layernorm import RMSNorm, layer_norm_fn, rms_norm_fn
 except ImportError:

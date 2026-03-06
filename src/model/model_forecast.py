@@ -7,7 +7,7 @@ from .layers.transformer_blocks import Block, InteractionBlock
 from .layers.time_decoder import TimeDecoder
 from .layers.mamba.vim_mamba import init_weights, create_block
 from functools import partial
-from timm.models.layers import DropPath, to_2tuple
+from timm.layers import DropPath, to_2tuple
 try:
     from mamba_ssm.ops.triton.layernorm import RMSNorm, layer_norm_fn, rms_norm_fn
 except ImportError:

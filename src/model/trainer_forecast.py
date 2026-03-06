@@ -72,6 +72,14 @@ class Trainer(pl.LightningModule):
     def forward(self, data):
         return self.net(data)
 
+    @staticmethod
+    def _infer_batch_size(data):
+        if isinstance(data, dict) and "target" in data and hasattr(data["target"], "shape"):
+            return int(data["target"].shape[0])
+        if isinstance(data, (list, tuple)) and len(data) > 0:
+            return Trainer._infer_batch_size(data[-1])
+        return 1
+
     def predict(self, data):
         self._ensure_submission_handler()
         memory_dict = None
@@ -168,6 +176,7 @@ class Trainer(pl.LightningModule):
     def training_step(self, data, batch_idx):
         if isinstance(data, list):
             data = data[-1]
+        batch_size = self._infer_batch_size(data)
         out = self(data)
         loss, loss_dict = self.cal_loss(out, data)
 
@@ -179,6 +188,7 @@ class Trainer(pl.LightningModule):
                 on_epoch=True,
                 prog_bar=False,
                 sync_dist=True,
+                batch_size=batch_size,
             )
 
         return loss
@@ -343,6 +353,7 @@ class StreamTrainer(Trainer):
             sum_loss += cur_loss
             memory_dict = out['memory_dict']
         loss_dict['loss'] = sum_loss.item()
+        batch_size = self._infer_batch_size(data)
         for k, v in loss_dict.items():
             self.log(
                 f"train/{k}",
@@ -351,6 +362,7 @@ class StreamTrainer(Trainer):
                 on_epoch=True,
                 prog_bar=False,
                 sync_dist=True,
+                batch_size=batch_size,
             )
 
         return sum_loss

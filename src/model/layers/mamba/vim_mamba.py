@@ -57,9 +57,9 @@ def _patch_transformers_generation_outputs() -> None:
 _patch_transformers_generation_outputs()
 
 from timm.models.vision_transformer import VisionTransformer, _cfg
-from timm.models.registry import register_model
-from timm.models.layers import trunc_normal_, lecun_normal_
-from timm.models.layers import DropPath, to_2tuple
+from timm.models import register_model
+from timm.layers import trunc_normal_, lecun_normal_
+from timm.layers import DropPath, to_2tuple
 from timm.models.vision_transformer import _load_weights
 from mamba_ssm.modules.mamba_simple import Mamba
 from mamba_ssm.utils.generation import GenerationMixin
