@@ -22,11 +22,15 @@ class ModelForecast(nn.Module):
         qkv_bias=False,
         drop_path=0.2,
         future_steps: int = 60,
+        scene_depth: int = 5,
+        max_lane_tokens: int = None,
         use_temporal_mamba: bool = True,
         use_legacy_time_decoder: bool = True,
     ) -> None:
         super().__init__()
         self.future_steps = future_steps
+        self.scene_depth = scene_depth
+        self.max_lane_tokens = max_lane_tokens
         self.use_temporal_mamba = use_temporal_mamba
         self.use_legacy_time_decoder = use_legacy_time_decoder
 
@@ -74,7 +78,7 @@ class ModelForecast(nn.Module):
                 qkv_bias=qkv_bias,
                 drop_path=0.2,
             )
-            for i in range(5)
+            for i in range(self.scene_depth)
         )
         self.norm = nn.LayerNorm(embed_dim)
 
@@ -120,6 +124,48 @@ class ModelForecast(nn.Module):
         )
         actor_feat_tmp[hist_feat_key_valid] = actor_feat
         return actor_feat_tmp.view(B, N, actor_feat.shape[-1])
+
+    def _select_topk_lanes(self, lane_feat, data):
+        if self.max_lane_tokens is None:
+            return (
+                lane_feat,
+                data["lane_centers"],
+                data["lane_angles"],
+                data["lane_key_valid_mask"],
+                data["lane_attr"],
+            )
+        bsz, total_lanes, _ = lane_feat.shape
+        k = min(int(self.max_lane_tokens), total_lanes)
+        if k >= total_lanes:
+            return (
+                lane_feat,
+                data["lane_centers"],
+                data["lane_angles"],
+                data["lane_key_valid_mask"],
+                data["lane_attr"],
+            )
+
+        lane_valid = data["lane_key_valid_mask"]
+        ego_center = data["x_centers"][:, 0:1]  # [B, 1, 2]
+        lane_dist = torch.norm(data["lane_centers"] - ego_center, dim=-1)
+        lane_dist = lane_dist.masked_fill(~lane_valid, float("inf"))
+        topk_idx = torch.topk(lane_dist, k=k, dim=1, largest=False).indices
+
+        gather_2d = topk_idx
+        gather_3d = topk_idx.unsqueeze(-1)
+        lane_feat = torch.gather(
+            lane_feat, 1, gather_3d.expand(-1, -1, lane_feat.size(-1))
+        )
+        lane_centers = torch.gather(
+            data["lane_centers"], 1, gather_3d.expand(-1, -1, data["lane_centers"].size(-1))
+        )
+        lane_angles = torch.gather(data["lane_angles"], 1, gather_2d)
+        lane_key_valid_mask = torch.gather(data["lane_key_valid_mask"], 1, gather_2d)
+        lane_attr = torch.gather(
+            data["lane_attr"], 1, gather_3d.expand(-1, -1, data["lane_attr"].size(-1))
+        )
+
+        return lane_feat, lane_centers, lane_angles, lane_key_valid_mask, lane_attr
 
     def initialize_weights(self):
         nn.init.normal_(self.actor_type_embed, std=0.02)
@@ -176,23 +222,25 @@ class ModelForecast(nn.Module):
         B, M, L, D = lane_normalized.shape
         lane_feat = self.lane_embed(lane_normalized.view(-1, L, D).contiguous())
         lane_feat = lane_feat.view(B, M, -1)
+        lane_feat, lane_centers, lane_angles, lane_key_valid_mask, lane_attr = \
+            self._select_topk_lanes(lane_feat, data)
 
         # type embedding and position embedding
-        x_centers = torch.cat([data["x_centers"], data["lane_centers"]], dim=1)
-        angles = torch.cat([data["x_angles"][:, :, -1], data["lane_angles"]], dim=1)
+        x_centers = torch.cat([data["x_centers"], lane_centers], dim=1)
+        angles = torch.cat([data["x_angles"][:, :, -1], lane_angles], dim=1)
         x_angles = torch.stack([torch.cos(angles), torch.sin(angles)], dim=-1)
         pos_feat = torch.cat([x_centers, x_angles], dim=-1)
         pos_embed = self.pos_embed(pos_feat)
 
         actor_type_embed = self.actor_type_embed[data["x_attr"][..., 2].long()]
-        lane_type_embed = self.lane_type_embed[data["lane_attr"][..., 0].long()]
+        lane_type_embed = self.lane_type_embed[lane_attr[..., 0].long()]
         actor_feat += actor_type_embed
         lane_feat += lane_type_embed
 
         # scene context features
         x_encoder = torch.cat([actor_feat, lane_feat], dim=1)
         key_valid_mask = torch.cat(
-            [data["x_key_valid_mask"], data["lane_key_valid_mask"]], dim=1
+            [data["x_key_valid_mask"], lane_key_valid_mask], dim=1
         )
 
         x_encoder = x_encoder + pos_embed

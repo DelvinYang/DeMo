@@ -23,6 +23,7 @@ output: change_${datamodule.name}_${datamodule.phase}_${model.name}_${model.phas
 # trainer
 num_workers: 4
 gpus: 4  # default to 4 GPUs for train/val
+precision: 32-true  # auto-switch to bf16-mixed for SNN models in train.py
 strategy: ddp_find_unused_parameters_false
 sync_bn: true
 batch_size: 16

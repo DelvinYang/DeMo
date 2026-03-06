@@ -47,9 +47,17 @@ def main(conf):
     pl.seed_everything(conf.seed, workers=True)
     output_dir = HydraConfig.get().runtime.output_dir
     strategy = conf.strategy
+    precision = conf.precision
     model_type = conf.model.target.model.type
     if model_type == "SNNModelForecastV3":
         strategy = "ddp_find_unused_parameters_true"
+    if model_type in {
+        "SNNModelForecastFast",
+        "SNNModelForecastV1",
+        "SNNModelForecastV2",
+        "SNNModelForecastV3",
+    } and precision == "32-true":
+        precision = "bf16-mixed"
 
     logger = TensorBoardLogger(save_dir=output_dir, name="logs")
 
@@ -72,6 +80,7 @@ def main(conf):
         gradient_clip_val=conf.gradient_clip_val,
         gradient_clip_algorithm=conf.gradient_clip_algorithm,
         max_epochs=conf.epochs,
+        precision=precision,
         accelerator="gpu",
         devices=conf.gpus,
         strategy=strategy,

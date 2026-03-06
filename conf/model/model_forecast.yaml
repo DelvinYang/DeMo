@@ -11,6 +11,8 @@ target:
     mlp_ratio: 4.0
     qkv_bias: False
     drop_path: 0.2
+    scene_depth: 5
+    max_lane_tokens:
   pretrained_weights: ${pretrained_weights}
   lr: ${lr}
   weight_decay: ${weight_decay}

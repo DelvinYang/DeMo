@@ -11,6 +11,8 @@ target:
     mlp_ratio: 4.0
     qkv_bias: False
     drop_path: 0.2
+    scene_depth: 4
+    max_lane_tokens: 64
 
     # SNN temporal encoder
     spike_depth: 4
