@@ -11,6 +11,9 @@ target:
   shuffle: True
   num_workers: ${num_workers}
   pin_memory: True
+  persistent_workers: True
+  multiprocessing_context: "spawn"
+  prefetch_factor: 2
   dataset:
     num_historical_steps: 50
     sequence_origins: [50]

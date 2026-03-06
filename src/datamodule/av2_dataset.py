@@ -124,8 +124,19 @@ class Av2Dataset(Dataset):
         )
 
         # remove outliers
-        nearest_dist = torch.cdist(pos[:, self.num_historical_steps - 1, :2],
-                                   l_pos.view(-1, 2)).min(dim=1).values
+        if l_pos.numel() == 0:
+            # Extremely rare: no lane points remain after filtering.
+            # Keep focal agent and avoid calling cdist/min on empty tensors.
+            nearest_dist = torch.full(
+                (pos.size(0),),
+                float("inf"),
+                device=pos.device,
+                dtype=pos.dtype,
+            )
+        else:
+            nearest_dist = torch.cdist(
+                pos[:, self.num_historical_steps - 1, :2], l_pos.view(-1, 2)
+            ).min(dim=1).values
         ag_mask = nearest_dist < 5
         ag_mask[0] = True
         pos = pos[ag_mask]
