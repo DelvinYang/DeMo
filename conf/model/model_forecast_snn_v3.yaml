@@ -19,6 +19,8 @@ target:
     spike_tau: 2.5
     spike_v_threshold: 0.9
     spike_detach_reset: True
+    ann_bypass_ratio: 0.0
+    collect_aux_losses: True
 
     # V2 params
     interaction_type: hybrid  # spiking | hybrid | transformer

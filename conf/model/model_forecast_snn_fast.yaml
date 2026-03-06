@@ -11,8 +11,8 @@ target:
     mlp_ratio: 4.0
     qkv_bias: False
     drop_path: 0.2
-    scene_depth: 4
-    max_lane_tokens: 64
+    scene_depth: 5
+    max_lane_tokens:
 
     # SNN temporal encoder
     spike_depth: 4
@@ -22,13 +22,15 @@ target:
     spike_v_threshold: 0.9
     spike_detach_reset: True
     spike_backend: torch  # torch | cupy | triton (if available)
-    hist_downsample: 5
-    spike_steps: 6
-    spike_pooling: mean
+    hist_downsample: 3
+    spike_steps: 10
+    spike_pooling: last
+    ann_bypass_ratio: 0.15
+    collect_aux_losses: False
   pretrained_weights: ${pretrained_weights}
   lr: ${lr}
   weight_decay: ${weight_decay}
   epochs: ${epochs}
   warmup_epochs: ${warmup_epochs}
-  spike_reg_weight: 0.001
-  mem_reg_weight: 0.001
+  spike_reg_weight: 0.0
+  mem_reg_weight: 0.0

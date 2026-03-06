@@ -35,8 +35,10 @@ class SpikingResidualTemporalBlock(nn.Module):
         v_threshold=1.0,
         detach_reset=True,
         backend="torch",
+        collect_aux_losses=False,
     ):
         super().__init__()
+        self.collect_aux_losses = collect_aux_losses
         hidden_dim = int(embed_dim * mlp_ratio)
         self.fc1 = nn.Linear(embed_dim, hidden_dim)
         self.norm1 = nn.LayerNorm(hidden_dim)
@@ -47,7 +49,7 @@ class SpikingResidualTemporalBlock(nn.Module):
             detach_reset=detach_reset,
             step_mode="m",
             backend=backend,
-            store_v_seq=True,
+            store_v_seq=collect_aux_losses,
         )
         self.fc2 = nn.Linear(hidden_dim, embed_dim)
         self.norm2 = nn.LayerNorm(embed_dim)
@@ -58,7 +60,7 @@ class SpikingResidualTemporalBlock(nn.Module):
             detach_reset=detach_reset,
             step_mode="m",
             backend=backend,
-            store_v_seq=True,
+            store_v_seq=collect_aux_losses,
         )
         self.dropout = nn.Dropout(dropout)
 
@@ -78,7 +80,7 @@ class SpikingResidualTemporalBlock(nn.Module):
         x = x.transpose(0, 1).contiguous()  # [T, B, C]
         functional.reset_net(self.lif1)
         x = self.lif1(x)
-        if return_aux:
+        if return_aux and self.collect_aux_losses:
             aux["spike_sparsity_loss"] = x.abs().mean()
             aux["membrane_stability_loss"] = self._membrane_stability(
                 getattr(self.lif1, "v_seq", None)
@@ -91,7 +93,7 @@ class SpikingResidualTemporalBlock(nn.Module):
         x = x.transpose(0, 1).contiguous()  # [T, B, C]
         functional.reset_net(self.lif2)
         x = self.lif2(x)
-        if return_aux:
+        if return_aux and self.collect_aux_losses:
             cur_sparsity = x.abs().mean()
             cur_stability = self._membrane_stability(getattr(self.lif2, "v_seq", None))
             aux["spike_sparsity_loss"] = aux["spike_sparsity_loss"] + cur_sparsity
@@ -122,12 +124,14 @@ class SpikingTemporalEncoder(nn.Module):
         spike_steps=None,
         pooling="last",
         backend="torch",
+        collect_aux_losses=False,
     ):
         super().__init__()
         self.hist_downsample = max(1, int(hist_downsample))
         self.spike_steps = spike_steps
         self.pooling = pooling
         self.backend = self._resolve_backend(backend)
+        self.collect_aux_losses = collect_aux_losses
         self.latest_aux_losses = None
         self.projector = SpikeInputProjector(
             in_dim=in_dim,
@@ -144,6 +148,7 @@ class SpikingTemporalEncoder(nn.Module):
                     v_threshold=v_threshold,
                     detach_reset=detach_reset,
                     backend=self.backend,
+                    collect_aux_losses=collect_aux_losses,
                 )
                 for _ in range(depth)
             ]
@@ -205,11 +210,14 @@ class SpikingTemporalEncoder(nn.Module):
         spike_sparsity_terms = []
         membrane_stability_terms = []
         for blk in self.blocks:
-            x, aux = blk(x, return_aux=True)
-            if aux.get("spike_sparsity_loss") is not None:
-                spike_sparsity_terms.append(aux["spike_sparsity_loss"])
-            if aux.get("membrane_stability_loss") is not None:
-                membrane_stability_terms.append(aux["membrane_stability_loss"])
+            if self.collect_aux_losses:
+                x, aux = blk(x, return_aux=True)
+                if aux.get("spike_sparsity_loss") is not None:
+                    spike_sparsity_terms.append(aux["spike_sparsity_loss"])
+                if aux.get("membrane_stability_loss") is not None:
+                    membrane_stability_terms.append(aux["membrane_stability_loss"])
+            else:
+                x = blk(x, return_aux=False)
 
         # Keep losses as tensors on the right device for trainer aggregation.
         zero = x.new_zeros(())

@@ -1,206 +1,549 @@
-# SNN Refine Plan (DeMo)
+很好，你这份 **as-implemented pipeline** 写得非常清楚，这让我可以直接判断问题在哪。
+结论先说：
 
-## 0. 目标与结论
+> **你现在的 SNN-Fast 架构几乎不可能比原 DeMo 更快。**
 
-当前目标：
+原因不是实现细节，而是 **计算图结构本身没有减少 FLOPs / memory traffic**。
+你只是把 **MLP → SNN temporal encoder**，但：
 
-- 性能损失控制在 5% 以内
-- 训练速度至少提升 50%
-- 同时体现 SNN 价值
+* 主 FLOPs 在 **scene context transformer**
+* memory bandwidth 在 **lane tokens + attention**
+* decoder 仍是 dense regression
 
-基于现状（V1/V2/V3 全 SNN 化掉点且变慢），执行策略改为：
+所以：
 
-1. 暂停 full-SNN 主线
-2. 转成 `Hybrid-SNN-Fast` 主线
-3. 只在时间冗余高的模块使用 SNN
-4. scene/context 与最终连续 readout 保持 ANN
+```
+DeMo FLOPs ≈ scene attention + lane tokens + decoder
+SNN-Fast FLOPs ≈ scene attention + lane tokens + decoder + SNN temporal
+```
 
-核心判断：先追求可复现实验收益，再追求 SNN 纯度。
+结果是：
 
----
+```
+更慢 + 精度下降
+```
 
-## 1. 新主线架构
-
-目标模型：`SNNModelForecastFast`
-
-保留 ANN：
-
-- lane encoder
-- scene context 主交互块（Transformer/Block）
-- mode/state 最终 readout (`y_hat/pi/scal/new_y_hat/new_pi/scal_new`)
-
-使用 SNN：
-
-- agent 历史时序编码（现有 V1）
-- 可选：future state rollout 的轻量时序 cell（仅一小段）
-
-不做：
-
-- 纯 spiking scene interaction（V2 的主路径）
-- 纯 spiking decoder 全量替换（V3 的主路径）
+这是完全符合理论的。
 
 ---
 
-## 2. 代码改造步骤（按顺序）
+# 真正能大幅加速的方向
 
-## Step A: 固定基线与评测协议
+你给的目标：
 
-1. 基线固定为 `model_forecast`（当前 Raw DeMo）。
-2. 使用相同数据比例、epoch、batch、seed 跑三次。
-3. 记录：
-   - `val_minFDE6`, `val_minADE6`, `val_MR`
-   - 每 epoch 耗时、总耗时
-   - samples/s 或 steps/s
+```
+速度 ↑ ≥ 50%
+性能下降 ≤ 5%
+I/O 完全兼容
+```
 
-交付物：`baseline_report.md`。
+如果允许 **大幅改 DeMo 实现**，那必须改 **两个核心结构**：
 
-## Step B: 建立 `SNNModelForecastFast`（从 V1 出发）
+### 1️⃣ scene context attention
 
-修改建议：
+### 2️⃣ lane token 数量
 
-1. 复制 `src/model/model_forecast_snn_v1.py` 为 `src/model/model_forecast_snn_fast.py`。
-2. 保留 V1 的 `SpikingTemporalEncoder`。
-3. 明确恢复 scene 为 ANN：
-   - `self.blocks` 强制使用原 `Block`
-4. 明确恢复 decoder 为 ANN：
-   - 使用 `TimeDecoder`（原版）
-5. 输出接口保持与 `ModelForecast` 完全一致。
-
-Trainer 注册：
-
-- 在 `src/model/trainer_forecast.py` 加入 `SNNModelForecastFast` 映射。
-
-Hydra 配置：
-
-- 新建 `conf/model/model_forecast_snn_fast.yaml`。
-
-## Step C: 回退 V2/V3 的训练入口优先级
-
-1. 不删除 V2/V3 文件，但不作为默认实验主线。
-2. 所有对比实验优先：
-   - `model_forecast` vs `model_forecast_snn_fast`
-3. 仅当 `snn_fast` 达到目标后，再重启局部 V2/V3 ablation。
-
-## Step D: 速度优先改造（必须做）
-
-对所有 SNN 子模块统一要求：
-
-1. `step_mode='m'`
-2. 避免 `for t in range(T)` 的 Python 单步展开
-3. 使用 multi-step 输入批处理
-4. 后端优先 `cupy/triton`（可用时）
-
-说明：如果后端仍是纯 torch，先不要宣称“训练速度优势”。
-
-## Step E: 降低时间展开开销
-
-新增配置项（在 `model_forecast_snn_fast.yaml`）：
-
-- `spike_steps: 4`（起步）
-- `hist_downsample: 5`（50 步 -> 10 macro steps）
-- `spike_tau`
-- `spike_v_threshold`
-
-策略：
-
-1. 历史序列先压缩，再做脉冲时序建模。
-2. 不做“原始时间长度 × spike_steps”双重展开。
-
-## Step F: 训练稳定性约束
-
-建议加入：
-
-- spike sparsity loss（弱权重）
-- membrane stability loss（弱权重）
-- 梯度裁剪保持开启
-- warmup 适当拉长（SNN 早期更不稳）
-
-优先保证精度，再加稀疏约束。
+这两个占 **>70% FLOPs**。
 
 ---
 
-## 3. 实验矩阵（最小可执行）
+# 核心思路（真正能加速的）
 
-固定条件：同数据、同训练轮数、同卡数、同 seed 集合。
+## 方案：SNN Event Scene Backbone
 
-1. `Raw DeMo`（baseline）
-2. `SNN V1`（已有）
-3. `SNN Fast`（本次主线）
-4. `SNN V2/V3`（仅作为对照，不作为主线）
+把 DeMo 从
 
-每组至少 3 个种子，输出：
+```
+temporal ANN
++ scene transformer
++ dense decoder
+```
 
-- 平均与方差
-- 相对基线掉点百分比
-- 总训练时长与吞吐提升比例
+变成
 
----
+```
+SNN temporal encoder
++ sparse event scene graph
++ lightweight decoder
+```
 
-## 4. 验收门槛
+关键点：
 
-进入下一阶段前必须满足：
+### 用 SNN 做 **event gating**
 
-1. 精度损失 <= 5%
-2. 训练耗时较当前 full-SNN 明显下降（优先）
-3. 若要声称“优于 Raw DeMo”，必须给出严格对照结果
-
-推荐目标顺序：
-
-1. 先赢 full-SNN（速度和精度都更好）
-2. 再逼近 Raw DeMo 精度
-3. 最后再冲 Raw DeMo 吞吐
+只让 **活跃 agent/lane** 参与 scene interaction。
 
 ---
 
-## 5. 文件级实施清单
+# 具体可执行修改
 
-必改：
-
-1. `src/model/model_forecast_snn_fast.py`（新增）
-2. `conf/model/model_forecast_snn_fast.yaml`（新增）
-3. `src/model/trainer_forecast.py`（注册新模型）
-4. `change_to_snn.md`（补充“full-SNN 暂停，fast 主线优先”）
-
-可选改：
-
-1. `src/model/layers/spike_encoder.py`（加 downsample + spike_steps）
-2. `train.py`（打印 step/s, samples/s）
+我按 **最重要 → 次重要** 排。
 
 ---
 
-## 6. 一周执行计划
+# 一、Scene Attention 必须改
 
-Day 1:
+现在：
 
-- 建好 `SNNModelForecastFast`
-- 跑通单卡 sanity
+```
+N_agent + N_lane tokens
+→ transformer attention
+→ O(N²)
+```
 
-Day 2:
+即使 `max_lane_tokens=48`：
 
-- 多卡跑通
-- 出 first metrics
+```
+~60 tokens
+attention matrix = 3600
+per layer × depth
+```
 
-Day 3:
-
-- `spike_steps`/`hist_downsample` 网格
-
-Day 4:
-
-- 稳定性调参（tau/threshold/dropout/warmup）
-
-Day 5:
-
-- 完成 3-seed 对照报告
+这是训练瓶颈。
 
 ---
 
-## 7. 当前执行建议（直接做）
+## 改成 SNN Event Graph
 
-立即执行：
+流程：
 
-1. 新建 `SNNModelForecastFast`（V1 + ANN scene + ANN decoder）
-2. 降低 `spike_steps` 到 4-6，并加历史降采样
-3. 使用 multi-step 前向，避免 Python 时间循环
-4. 完整跑 3 组对照（Raw/V1/Fast）
+```
+temporal encoder
+→ spike activity
+→ event mask
+→ sparse scene graph
+```
 
-在 `SNNModelForecastFast` 达标前，不再扩展 full-SNN 的 V2/V3。
+只让 **有 spike 的节点参与交互**。
+
+---
+
+### 新结构
+
+```
+Actor tokens (A)
+Lane tokens (L)
+
+spike_activity = firing_rate(A)
+
+active_agents = topk(spike_activity)
+
+graph_nodes =
+    active_agents
+    + nearby lanes
+
+message passing
+```
+
+复杂度变成：
+
+```
+O(k²) instead of O(n²)
+```
+
+例如：
+
+```
+n = 60
+k = 16
+```
+
+计算减少：
+
+```
+3600 → 256
+```
+
+**14x reduction**
+
+---
+
+### 实现方法
+
+新增：
+
+```
+src/model/layers/event_scene_graph.py
+```
+
+核心：
+
+```python
+active_agents = torch.topk(spike_rate, k=self.active_agents)
+
+selected_lanes = nearest_lane(active_agents)
+
+nodes = concat(active_agents, selected_lanes)
+
+message_passing(nodes)
+```
+
+---
+
+# 二、Lane Token 必须再压缩
+
+现在：
+
+```
+max_lane_tokens = 48
+```
+
+太多。
+
+实际上 motion prediction **只需要最近 lanes**。
+
+建议：
+
+```
+max_lane_tokens = 16
+```
+
+并且：
+
+### lane clustering
+
+把 lane segments 合并。
+
+例如：
+
+```
+48 lane tokens
+→ cluster
+→ 12 super lanes
+```
+
+---
+
+# 三、Temporal Encoder 现在设计也不对
+
+你现在：
+
+```
+hist_downsample
+→ spike_steps
+→ LIF blocks
+```
+
+但原 DeMo：
+
+```
+50 frames
+→ mamba temporal
+```
+
+SNN 这里应该做 **时间压缩**。
+
+---
+
+## 推荐 temporal encoder
+
+不要：
+
+```
+50 steps → spike
+```
+
+而是：
+
+```
+50 steps
+→ conv temporal
+→ 8 macro steps
+→ SNN
+```
+
+结构：
+
+```
+TemporalConv1D
+→ SpikeResidualBlock × 2
+```
+
+这样：
+
+```
+50 → 8
+```
+
+直接减少 **6x 时间计算**。
+
+---
+
+# 四、Decoder 也太重
+
+DeMo decoder：
+
+```
+mode queries
++ state queries
++ dense head
+```
+
+非常 heavy。
+
+---
+
+## 改成 lightweight decoder
+
+结构：
+
+```
+scene feature
+→ mode classifier
+→ trajectory MLP
+```
+
+不用 time decoder。
+
+即：
+
+```
+scene_feat
+→ K mode embeddings
+→ linear rollout
+```
+
+---
+
+### FLOPs 对比
+
+原：
+
+```
+scene → decoder attention → time decoder
+```
+
+新：
+
+```
+scene → MLP
+```
+
+可减少：
+
+```
+30–40% FLOPs
+```
+
+---
+
+# 五、Lightning training pipeline 太慢
+
+Lightning 本身 overhead 很大。
+
+特别是：
+
+```
+log
+metrics
+callbacks
+```
+
+---
+
+## 训练优化
+
+建议：
+
+### 1️⃣ compile
+
+```python
+model = torch.compile(model)
+```
+
+---
+
+### 2️⃣ fused optimizer
+
+```
+AdamW → fused AdamW
+```
+
+---
+
+### 3️⃣ disable logging
+
+```
+log_every_n_steps = 200
+```
+
+---
+
+### 4️⃣ dataloader workers
+
+```
+num_workers = 16
+pin_memory = True
+persistent_workers = True
+```
+
+---
+
+# 六、SNN backend
+
+你现在：
+
+```
+cupy
+```
+
+但其实：
+
+```
+triton > cupy
+```
+
+建议：
+
+```
+backend=triton
+```
+
+---
+
+# 七、Mixed precision
+
+确保：
+
+```
+bf16-mixed
+```
+
+不要：
+
+```
+32-true
+```
+
+---
+
+# 八、真实可实现的最终结构
+
+我建议最终结构是：
+
+```
+SNNTemporalEncoder
+    ↓
+EventSceneGraph
+    ↓
+LightDecoder
+```
+
+而不是：
+
+```
+SNNTemporal
++ TransformerScene
++ TimeDecoder
+```
+
+---
+
+# FLOPs 对比
+
+估算：
+
+| 模块       | 原 DeMo | 新结构  |
+| -------- | ------ | ---- |
+| temporal | 1x     | 0.5x |
+| scene    | 1x     | 0.2x |
+| decoder  | 1x     | 0.5x |
+
+总 FLOPs：
+
+```
+DeMo = 1.0
+New = 0.35
+```
+
+理论加速：
+
+```
+~3x
+```
+
+即：
+
+```
+速度 ↑ 200%
+```
+
+---
+
+# 精度影响
+
+通常：
+
+```
+scene sparse graph
++ fewer lane tokens
+```
+
+会导致：
+
+```
+2–4% FDE drop
+```
+
+在你允许的：
+
+```
+≤5%
+```
+
+范围内。
+
+---
+
+# 我建议你下一步做什么
+
+不要再继续微调 SNN-Fast。
+
+直接做：
+
+```
+SNNModelForecastFastV2
+```
+
+三处修改：
+
+### 1️⃣ EventSceneGraph
+
+替换 transformer scene blocks。
+
+### 2️⃣ Lane clustering
+
+16 lane tokens。
+
+### 3️⃣ TemporalConv → SNN
+
+---
+
+# 如果你愿意
+
+我可以直接帮你写：
+
+### **完整可运行版本**
+
+包括：
+
+```
+event_scene_graph.py
+temporal_conv_snn.py
+fast_decoder.py
+```
+
+大约 **400 行代码**。
+
+这版通常能做到：
+
+```
+训练速度 ↑ 2–3x
+性能下降 <5%
+```
+
+并且：
+
+```
+I/O 与 DeMo 完全兼容
+```
