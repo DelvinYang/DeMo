@@ -396,11 +396,23 @@ class Trainer(pl.LightningModule):
             },
         ]
 
+        clip_val = 0.0
+        if getattr(self, "trainer", None) is not None:
+            clip_val = float(getattr(self.trainer, "gradient_clip_val", 0.0) or 0.0)
+
+        use_fused = self.use_fused_adamw and torch.cuda.is_available()
+        if use_fused and clip_val > 0:
+            use_fused = False
+            warnings.warn(
+                "Disable fused AdamW because gradient clipping is enabled; "
+                "fused AdamW is incompatible with Lightning gradient clipping."
+            )
+
         adamw_kwargs = {
             "lr": self.lr,
             "weight_decay": self.weight_decay,
         }
-        if self.use_fused_adamw and torch.cuda.is_available():
+        if use_fused:
             adamw_kwargs["fused"] = True
         try:
             optimizer = torch.optim.AdamW(optim_groups, **adamw_kwargs)
