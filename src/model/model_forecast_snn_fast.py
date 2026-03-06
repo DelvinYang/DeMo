@@ -83,7 +83,7 @@ class SNNModelForecastFast(ModelForecast):
         )
         spike_rate = torch.zeros(B * N, device=actor_feat_valid.device, dtype=actor_feat_valid.dtype)
         actor_feat[hist_feat_key_valid] = actor_feat_valid
-        spike_rate[hist_feat_key_valid] = spike_rate_valid
+        spike_rate[hist_feat_key_valid] = spike_rate_valid.to(dtype=spike_rate.dtype)
         actor_feat = actor_feat.view(B, N, -1)
         spike_rate = spike_rate.view(B, N)
         return actor_feat, spike_rate, self.temporal_encoder.latest_aux_losses
