@@ -1,6 +1,19 @@
 import os
 import sys
 import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message=r"`torch\.cuda\.amp\.custom_(fwd|bwd)\(args\.\.\.\)` is deprecated\..*",
+    category=FutureWarning,
+)
+warnings.filterwarnings(
+    "ignore",
+    message=r"pkg_resources is deprecated as an API\..*",
+    category=UserWarning,
+    module=r"torchmetrics\.utilities\.imports",
+)
+
 import hydra
 import torch
 import pytorch_lightning as pl
@@ -16,20 +29,6 @@ from pytorch_lightning.loggers import TensorBoardLogger
 
 # Performance hint for Tensor Core GPUs (e.g., A100): use TF32 matmul kernels.
 torch.set_float32_matmul_precision("high")
-
-# mamba_ssm uses deprecated AMP decorators internally; keep logs clean.
-warnings.filterwarnings(
-    "ignore",
-    message=r"`torch\.cuda\.amp\.custom_(fwd|bwd)\(args\.\.\.\)` is deprecated\..*",
-    category=FutureWarning,
-)
-warnings.filterwarnings(
-    "ignore",
-    message=r"pkg_resources is deprecated as an API\..*",
-    category=UserWarning,
-    module=r"torchmetrics\.utilities\.imports",
-)
-
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def main(conf):
