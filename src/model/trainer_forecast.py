@@ -10,9 +10,15 @@ from torchmetrics import MetricCollection
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from src.metrics import MR, minADE, minFDE, brier_minFDE
 from src.utils.optim import WarmupCosLR
-from src.utils.submission_av2 import SubmissionAv2
 from src.utils.LaplaceNLLLoss import LaplaceNLLLoss
 from .model_forecast import ModelForecast, StreamModelForecast
+
+try:
+    from src.utils.submission_av2 import SubmissionAv2
+    _SUBMISSION_AV2_IMPORT_ERROR = None
+except Exception as exc:
+    SubmissionAv2 = None
+    _SUBMISSION_AV2_IMPORT_ERROR = exc
 
 
 class Trainer(pl.LightningModule):
@@ -31,7 +37,7 @@ class Trainer(pl.LightningModule):
         self.lr = lr
         self.weight_decay = weight_decay
         self.save_hyperparameters()
-        self.submission_handler = SubmissionAv2()
+        self.submission_handler = None
 
         model_type = model.pop('type')
 
@@ -67,6 +73,7 @@ class Trainer(pl.LightningModule):
         return self.net(data)
 
     def predict(self, data):
+        self._ensure_submission_handler()
         memory_dict = None
         predictions = []
         probs = []
@@ -209,9 +216,7 @@ class Trainer(pl.LightningModule):
     def on_test_start(self) -> None:
         save_dir = Path("./submission")
         save_dir.mkdir(exist_ok=True)
-        self.submission_handler = SubmissionAv2(
-            save_dir=save_dir
-        )
+        self._ensure_submission_handler(save_dir=save_dir)
 
     def test_step(self, data, batch_idx) -> None:
         if isinstance(data, list):
@@ -224,6 +229,16 @@ class Trainer(pl.LightningModule):
 
     def on_test_end(self) -> None:
         self.submission_handler.generate_submission_file()
+
+    def _ensure_submission_handler(self, save_dir: str = "") -> None:
+        if self.submission_handler is not None:
+            return
+        if SubmissionAv2 is None:
+            raise ImportError(
+                "SubmissionAv2 is unavailable because its dependencies could not be imported. "
+                "This is only required for prediction/test submission export."
+            ) from _SUBMISSION_AV2_IMPORT_ERROR
+        self.submission_handler = SubmissionAv2(save_dir=save_dir)
 
     def configure_optimizers(self):
         decay = set()
