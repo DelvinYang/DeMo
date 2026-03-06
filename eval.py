@@ -23,7 +23,7 @@ warnings.filterwarnings(
 def main(conf):
     pl.seed_everything(conf.seed)
     output_dir = HydraConfig.get().runtime.output_dir
-    checkpoint = to_absolute_path("ckpts/DeMo.ckpt")  # TODO change to your checkpoint
+    checkpoint = "/res/shuqishen/demo/DeMo/outputs/change_av2_default_baseline_default/20260306-201529/checkpoints/last.ckpt"
     assert os.path.exists(checkpoint), f"Checkpoint {checkpoint} does not exist"
 
     trainer = pl.Trainer(
