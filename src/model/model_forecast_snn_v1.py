@@ -19,13 +19,7 @@ class SNNModelForecastV1(ModelForecast):
         spike_detach_reset=True,
         **kwargs,
     ):
-        super().__init__(embed_dim=embed_dim, **kwargs)
-
-        # Drop the original temporal encoder modules from the parent model.
-        del self.hist_embed_mlp
-        del self.hist_embed_mamba
-        del self.norm_f
-        del self.drop_path
+        super().__init__(embed_dim=embed_dim, use_temporal_mamba=False, **kwargs)
 
         self.spike_temporal_encoder = SpikingTemporalEncoder(
             in_dim=4,

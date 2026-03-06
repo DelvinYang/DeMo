@@ -4,8 +4,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .layers.lane_embedding import LaneEmbeddingLayer
 from .layers.transformer_blocks import Block, InteractionBlock
-from .layers.time_decoder import TimeDecoder
-from .layers.mamba.mamba_block import create_block
 from functools import partial
 from .layers.drop_path import DropPath
 try:
@@ -24,8 +22,13 @@ class ModelForecast(nn.Module):
         qkv_bias=False,
         drop_path=0.2,
         future_steps: int = 60,
+        use_temporal_mamba: bool = True,
+        use_legacy_time_decoder: bool = True,
     ) -> None:
         super().__init__()
+        self.future_steps = future_steps
+        self.use_temporal_mamba = use_temporal_mamba
+        self.use_legacy_time_decoder = use_legacy_time_decoder
 
         self.hist_embed_mlp = nn.Sequential(
             nn.Linear(4, 64),
@@ -33,21 +36,26 @@ class ModelForecast(nn.Module):
             nn.Linear(64, embed_dim),
         )
 
-        # Agent Encoding Mamba
-        self.hist_embed_mamba = nn.ModuleList(  
-            [
-                create_block(  
-                    d_model=embed_dim,
-                    layer_idx=i,
-                    drop_path=0.2,  
-                    bimamba=False,  
-                    rms_norm=True,  
-                )
-                for i in range(4)
-            ]
-        )
-        self.norm_f = RMSNorm(embed_dim, eps=1e-5)
-        self.drop_path = DropPath(drop_path)
+        if self.use_temporal_mamba:
+            from .layers.mamba.mamba_block import create_block
+            self.hist_embed_mamba = nn.ModuleList(
+                [
+                    create_block(
+                        d_model=embed_dim,
+                        layer_idx=i,
+                        drop_path=0.2,
+                        bimamba=False,
+                        rms_norm=True,
+                    )
+                    for i in range(4)
+                ]
+            )
+            self.norm_f = RMSNorm(embed_dim, eps=1e-5)
+            self.drop_path = DropPath(drop_path)
+        else:
+            self.hist_embed_mamba = nn.ModuleList()
+            self.norm_f = None
+            self.drop_path = nn.Identity()
 
         self.lane_embed = LaneEmbeddingLayer(3, embed_dim)
 
@@ -81,25 +89,30 @@ class ModelForecast(nn.Module):
             nn.Linear(1, 64), nn.GELU(), nn.Linear(64, embed_dim)
         )
 
-        self.time_decoder = TimeDecoder()
+        if self.use_legacy_time_decoder:
+            from .layers.time_decoder import TimeDecoder
+            self.time_decoder = TimeDecoder()
+        else:
+            self.time_decoder = None
 
         self.initialize_weights()
 
     def _encode_actor_history(self, hist_feat, hist_feat_key_valid, B, N):
         actor_feat = self.hist_embed_mlp(hist_feat[hist_feat_key_valid].contiguous())
-        residual = None
-        for blk_mamba in self.hist_embed_mamba:
-            actor_feat, residual = blk_mamba(actor_feat, residual)
-        fused_add_norm_fn = rms_norm_fn if isinstance(self.norm_f, RMSNorm) else layer_norm_fn
-        actor_feat = fused_add_norm_fn(
-            self.drop_path(actor_feat),
-            self.norm_f.weight,
-            self.norm_f.bias,
-            eps=self.norm_f.eps,
-            residual=residual,
-            prenorm=False,
-            residual_in_fp32=True
-        )
+        if self.use_temporal_mamba:
+            residual = None
+            for blk_mamba in self.hist_embed_mamba:
+                actor_feat, residual = blk_mamba(actor_feat, residual)
+            fused_add_norm_fn = rms_norm_fn if isinstance(self.norm_f, RMSNorm) else layer_norm_fn
+            actor_feat = fused_add_norm_fn(
+                self.drop_path(actor_feat),
+                self.norm_f.weight,
+                self.norm_f.bias,
+                eps=self.norm_f.eps,
+                residual=residual,
+                prenorm=False,
+                residual_in_fp32=True
+            )
 
         actor_feat = actor_feat[:, -1]
         actor_feat_tmp = torch.zeros(
@@ -225,7 +238,7 @@ class ModelForecast(nn.Module):
         y_hat_others = self.dense_predictor(x_others).view(B, x_others.size(1), -1, 2)
 
         # state query initialization
-        time = torch.arange(60).long().to(x_encoder.device)
+        time = torch.arange(self.future_steps).long().to(x_encoder.device)
         time = time * 0.1 + 0.1
         time = time.unsqueeze(-1)
         mode = self.time_embedding_mlp(time)
