@@ -1,6 +1,13 @@
 import os
 import sys
 import warnings
+import numpy as np
+
+# Compatibility shim for old packages (e.g. older wandb) under NumPy>=2.0.
+if not hasattr(np, "float_"):
+    np.float_ = np.float64
+if not hasattr(np, "complex_"):
+    np.complex_ = np.complex128
 
 warnings.filterwarnings(
     "ignore",

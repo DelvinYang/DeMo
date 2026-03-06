@@ -1,7 +1,7 @@
 from typing import Optional
 import torch
 import torch.nn as nn
-from timm.layers import DropPath
+from .drop_path import DropPath
 from torch import Tensor
 from .mln import MLN, nerf_positional_encoding
 
