@@ -9,6 +9,10 @@ if not hasattr(np, "float_"):
     np.float_ = np.float64
 if not hasattr(np, "complex_"):
     np.complex_ = np.complex128
+if not hasattr(np, "int"):
+    np.int = int
+if not hasattr(np, "bool"):
+    np.bool = bool
 
 warnings.filterwarnings(
     "ignore",
